@@ -18,10 +18,10 @@ const inputSearch = document.querySelector("#search-from");
 const outputSearch = document.querySelector("#search-to");
 
 const searchHandler = function (event) {
-  const string = event.target.value;
+  const string = event.target.value.toLowerCase();
   const list = event.target.parentElement.querySelector(".format-list");
   for (const button of Array.from(list.children)) {
-    if (!button.textContent.includes(string)) {
+    if (!button.textContent.toLowerCase().includes(string)) {
       button.style.display = "none";
     } else {
       button.style.display = "";
