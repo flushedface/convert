@@ -161,6 +161,10 @@ button.selected {
   .format-container {
     width: 100%;
     box-sizing: border-box;
+    padding: 0.8em 4em;
+  }
+  .format-list button {
+    width: 100%;
   }
   #format-containers {
     flex-flow: column nowrap;
