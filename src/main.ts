@@ -265,12 +265,22 @@ ui.modeToggleButton.addEventListener("click", () => {
   buildOptionList();
 });
 
+const convertPathCache: Array<{
+  files: FileData[],
+  node: ConvertPathNode
+}> = [];
+
 async function attemptConvertPath (files: FileData[], path: ConvertPathNode[]) {
 
   ui.popupBox.innerHTML = `<h2>Finding conversion route...</h2>
     <p>Trying ${path.map(c => c.format.format).join(" -> ")}</p>`;
 
-  for (let i = 0; i < path.length - 1; i ++) {
+  const cacheLast = convertPathCache.at(-1);
+  if (cacheLast) files = cacheLast.files;
+
+  const start = cacheLast ? convertPathCache.length : 0;
+  if (cacheLast) console.log(`STARTING FROM "${files[0].name}" INDEX ${start}`);
+  for (let i = start; i < path.length - 1; i ++) {
     const handler = path[i + 1].handler;
     try {
       if (!handler.ready) {
@@ -281,6 +291,7 @@ async function attemptConvertPath (files: FileData[], path: ConvertPathNode[]) {
       }
       files = await handler.doConvert(files, path[i].format, path[i + 1].format);
       if (files.some(c => !c.bytes.length)) throw "Output is empty.";
+      convertPathCache.push({ files, node: path[i + 1] });
     } catch (e) {
       console.log(path.map(c => c.format.format));
       console.error(handler.name, `${path[i].format.format} -> ${path[i + 1].format.format}`, e);
@@ -298,10 +309,19 @@ async function buildConvertPath (
   queue: ConvertPathNode[][]
 ) {
 
+  convertPathCache.length = 0;
+
   while (queue.length > 0) {
     const path = queue.shift();
     if (!path) continue;
     if (path.length > 5) continue;
+
+    for (let i = 1; i < path.length; i ++) {
+      if (path[i] !== convertPathCache[i]?.node) {
+        convertPathCache.length = i - 1;
+        break;
+      }
+    }
 
     const previous = path[path.length - 1];
 
