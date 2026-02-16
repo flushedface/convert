@@ -26,25 +26,32 @@ const ui = {
 };
 
 /**
- * Filters a list of butttons to exclude those not matching a substring.
+ * Filters a list of buttons to exclude those not matching a substring.
+ * Supports grouped buttons inside `.format-group` (details/summary).
  * @param list Button list (div) to filter.
  * @param string Substring for which to search.
  */
 const filterButtonList = (list: HTMLDivElement, string: string) => {
-  for (const button of Array.from(list.children)) {
-    if (!(button instanceof HTMLButtonElement)) continue;
+  const needle = (string || "").toLowerCase();
+
+  // Update each button's visibility
+  const buttons = Array.from(list.querySelectorAll("button"));
+  for (const button of buttons) {
     const formatIndex = button.getAttribute("format-index");
     let hasExtension = false;
     if (formatIndex) {
       const format = allOptions[parseInt(formatIndex)];
-      hasExtension = format?.format.extension.toLowerCase().includes(string);
+      hasExtension = format?.format.extension.toLowerCase().includes(needle);
     }
-    const hasText = button.textContent.toLowerCase().includes(string);
-    if (!hasExtension && !hasText) {
-      button.style.display = "none";
-    } else {
-      button.style.display = "";
-    }
+    const hasText = (button.textContent || "").toLowerCase().includes(needle);
+    (button as HTMLElement).style.display = (hasExtension || hasText) ? "" : "none";
+  }
+
+  // Hide groups that have no visible buttons
+  for (const grp of Array.from(list.querySelectorAll('.format-group'))) {
+    const grpButtons = grp.querySelectorAll('button');
+    const anyVisible = Array.from(grpButtons).some(b => (b as HTMLElement).style.display !== 'none');
+    (grp as HTMLElement).style.display = anyVisible ? '' : 'none';
   }
 }
 
@@ -112,12 +119,9 @@ const fileSelectHandler = (event: Event) => {
   let mimeType = normalizeMimeType(files[0].type);
 
   // Find a button matching the input MIME type.
-  const buttonMimeType = Array.from(ui.inputList.children).find(button => {
-    if (!(button instanceof HTMLButtonElement)) return false;
-    return button.getAttribute("mime-type") === mimeType;
-  });
+  const buttonMimeType = mimeType ? ui.inputList.querySelector(`button[mime-type="${mimeType}"]`) as HTMLButtonElement | null : null;
   // Click button with matching MIME type.
-  if (mimeType && buttonMimeType instanceof HTMLButtonElement) {
+  if (buttonMimeType) {
     buttonMimeType.click();
     ui.inputSearch.value = mimeType;
     filterButtonList(ui.inputList, ui.inputSearch.value);
@@ -127,12 +131,11 @@ const fileSelectHandler = (event: Event) => {
   // Fall back to matching format by file extension if MIME type wasn't found.
   const fileExtension = files[0].name.split(".").pop()?.toLowerCase();
 
-  const buttonExtension = Array.from(ui.inputList.children).find(button => {
-    if (!(button instanceof HTMLButtonElement)) return false;
+  const buttonExtension = Array.from(ui.inputList.querySelectorAll("button")).find(button => {
     const formatIndex = button.getAttribute("format-index");
-    if (!formatIndex) return;
+    if (!formatIndex) return false;
     const format = allOptions[parseInt(formatIndex)];
-    return format.format.extension.toLowerCase() === fileExtension;
+    return format.format.extension.toLowerCase() === (fileExtension || "");
   });
   if (buttonExtension instanceof HTMLButtonElement) {
     buttonExtension.click();
@@ -187,6 +190,16 @@ async function buildOptionList () {
   ui.inputList.innerHTML = "";
   ui.outputList.innerHTML = "";
 
+  const categoryLabels: Record<string, string> = {
+    image: "Image",
+    audio: "Audio",
+    video: "Video",
+    text: "Text",
+    application: "Application",
+    font: "Fonts",
+    '3D': "3D"
+  };
+
   for (const handler of handlers) {
     if (!window.supportedFormatCache.has(handler.name)) {
       console.warn(`Cache miss for formats of handler "${handler.name}".`);
@@ -212,11 +225,11 @@ async function buildOptionList () {
       // In simple mode, display each input/output format only once
       let addToInputs = true, addToOutputs = true;
       if (simpleMode) {
-        addToInputs = !Array.from(ui.inputList.children).some(c => {
+        addToInputs = !Array.from(ui.inputList.querySelectorAll("button")).some(c => {
           const currFormat = allOptions[parseInt(c.getAttribute("format-index") || "")]?.format;
           return currFormat?.mime === format.mime && currFormat?.format === format.format;
         });
-        addToOutputs = !Array.from(ui.outputList.children).some(c => {
+        addToOutputs = !Array.from(ui.outputList.querySelectorAll("button")).some(c => {
           const currFormat = allOptions[parseInt(c.getAttribute("format-index") || "")]?.format;
           return currFormat?.mime === format.mime && currFormat?.format === format.format;
         });
@@ -242,27 +255,46 @@ async function buildOptionList () {
 
       const clickHandler = (event: Event) => {
         if (!(event.target instanceof HTMLButtonElement)) return;
-        const targetParent = event.target.parentElement;
-        const previous = targetParent?.getElementsByClassName("selected")?.[0];
+        // Ensure we clear previous selection from the whole list (groups or not)
+        const listContainer = (event.target.closest('.format-list') as HTMLElement) || event.target.parentElement;
+        const previous = listContainer?.getElementsByClassName("selected")?.[0];
         if (previous) previous.className = "";
         event.target.className = "selected";
         const allSelected = document.getElementsByClassName("selected");
-        if (allSelected.length === 2) {
-          ui.convertButton.className = "";
-        } else {
-          ui.convertButton.className = "disabled";
-        }
+        ui.convertButton.className = (allSelected.length === 2) ? "" : "disabled";
       };
+
+      const ensureGroup = (parentList: HTMLDivElement, category: string, label: string) => {
+        let grp = parentList.querySelector(`.format-group[data-category="${category}"]`) as HTMLDetailsElement | null;
+        if (grp) return grp.querySelector('.format-group-list') as HTMLDivElement;
+        grp = document.createElement('details') as HTMLDetailsElement;
+        grp.className = 'format-group';
+        grp.setAttribute('data-category', category);
+        grp.open = true;
+        const summary = document.createElement('summary');
+        summary.textContent = label;
+        const grpList = document.createElement('div');
+        grpList.className = 'format-group-list';
+        grp.appendChild(summary);
+        grp.appendChild(grpList);
+        parentList.appendChild(grp);
+        return grpList;
+      };
+
+      const category = (format.mime || "other").split("/")[0] || "other";
+      const categoryLabel = categoryLabels[category] || category.toUpperCase();
 
       if (format.from && addToInputs) {
         const clone = newOption.cloneNode(true) as HTMLButtonElement;
         clone.onclick = clickHandler;
-        ui.inputList.appendChild(clone);
+        const container = ensureGroup(ui.inputList, category, categoryLabel);
+        container.appendChild(clone);
       }
       if (format.to && addToOutputs) {
         const clone = newOption.cloneNode(true) as HTMLButtonElement;
         clone.onclick = clickHandler;
-        ui.outputList.appendChild(clone);
+        const container = ensureGroup(ui.outputList, category, categoryLabel);
+        container.appendChild(clone);
       }
 
     }
